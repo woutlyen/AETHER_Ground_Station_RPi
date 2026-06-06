@@ -20,9 +20,11 @@ import sys
 import logging
 import os
 
+logging_level = os.getenv("LOGGING_ENABLED", "INFO").upper()
+
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, logging_level, logging.INFO),
     format="%(asctime)s [SPI DEMULTIPLEXER] [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -42,15 +44,8 @@ spi_config = config.get("spi_demux", {})
 SPI_BUS = spi_config.get("bus", 0)
 SPI_DEVICE = spi_config.get("device", 0)
 SPI_SPEED = spi_config.get("speed", 3000000)
-CHUNK_SIZE = spi_config.get("chunk_size", 1024)
 DRDY_PIN = spi_config.get("drdy_pin", 25)
-
-LOGGING_LEVEL = config.get("features", {}).get("logging_level", "INFO").upper()
-if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-    logger.setLevel(getattr(logging, LOGGING_LEVEL))
-else:
-    logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
-    logger.setLevel(logging.INFO)
+CHUNK_SIZE = 1024
 
 # UDP forwarding setup
 FORWARD_BASE_ADDRESS = "127.0.0.1"

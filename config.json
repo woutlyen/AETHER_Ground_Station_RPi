@@ -6,7 +6,6 @@
         "bus": 0,
         "device": 0,
         "speed": 3000000,
-        "chunk_size": 1024,
         "drdy_pin": 25
     },
     "sensor_processor": {

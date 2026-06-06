@@ -13,15 +13,18 @@ import socket
 import time
 import logging
 import json
+import os
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 Gst.init(None)
 
+logging_level = os.getenv("LOGGING_ENABLED", "INFO").upper()
+
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, logging_level, logging.INFO),
     format="%(asctime)s [UDP MJPEG] [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -36,13 +39,6 @@ def load_config(config_path="config.json"):
         sys.exit(1)
 
 config = load_config()
-
-LOGGING_LEVEL = config.get("features", {}).get("logging_level", "INFO").upper()
-if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-    logger.setLevel(getattr(logging, LOGGING_LEVEL))
-else:
-    logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
-    logger.setLevel(logging.INFO)
 
 # Parse command line arguments
 if len(sys.argv) < 5:

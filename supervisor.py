@@ -19,8 +19,20 @@ import os
 import logging
 
 # Configure logging
+def get_logging_level(config_path="config.json"):
+    """Get logging level from JSON file."""
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+            return config.get("features", {}).get("logging_level", "INFO").upper()
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        sys.exit(1)
+
+LOGGING_LEVEL = get_logging_level()
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOGGING_LEVEL, logging.INFO),
     format="%(asctime)s [SUPERVISOR] [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -35,16 +47,6 @@ def load_config(config_path="config.json"):
     except Exception as e:
         logger.error(f"Error loading config: {e}")
         sys.exit(1)
-
-config = load_config()
-
-LOGGING_LEVEL = config.get("features", {}).get("logging_level", "INFO").upper()
-if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-    logger.setLevel(getattr(logging, LOGGING_LEVEL))
-else:
-    logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
-    logger.setLevel(logging.INFO)
-
 
 def graceful_shutdown(sig, frame):
     """Handle graceful shutdown on SIGINT/SIGTERM."""
@@ -67,11 +69,10 @@ signal.signal(signal.SIGINT, graceful_shutdown)
 signal.signal(signal.SIGTERM, graceful_shutdown)
 
 
-def start_process(name, cmd):
+def start_process(name, cmd, env_vars):
     """Start a subprocess with error handling."""
     try:
-        env = os.environ.copy()
-        running[name] = subprocess.Popen(cmd, env=env)
+        running[name] = subprocess.Popen(cmd, env=env_vars)
         logger.info(f"Started {name} (PID: {running[name].pid})")
     except Exception as e:
         logger.error(f"Failed to start {name}: {e}")
@@ -104,6 +105,10 @@ def manage_processes(config):
     Args:
         config: Full configuration dict
     """
+
+    env_vars = os.environ.copy()
+    env_vars["LOGGING_LEVEL"] = LOGGING_LEVEL
+
     desired_processes = {}
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -153,11 +158,13 @@ def manage_processes(config):
     # Start desired processes
     for name, cmd in desired_processes.items():
         if name not in running or running[name].poll() is not None:
-            start_process(name, cmd)
+            logger.info(f"Starting {name}...")
+            start_process(name, cmd, env_vars)
 
     # Stop undesired processes (shouldn't happen with fixed config)
     for name in list(running.keys()):
         if name not in desired_processes:
+            logger.info(f"Stopping {name}...")
             stop_process(name)
 
 
