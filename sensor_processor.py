@@ -164,8 +164,8 @@ def convert_sensor_data(sensor_id: int, data: bytes) -> list:
             values.append(temp_celsius)
         
     elif sensor_id == 0x13:  # IFS_TCOUPLE_ERROR
-        # Error flags (bit-mapped) for 4 thermocouples
-        values = [data[0], data[1], data[2], data[3]]
+        # Error flags (bit-mapped)
+        values = [data[0]]
         
     elif sensor_id == 0x14:  # IFS_STAGNATION
         # Temperature (int16) and Pressure (int16) conversions
@@ -282,7 +282,7 @@ def main():
                 sensors = parse_sensor_payload(payload)
                 
                 for sensor_id, sensor_raw_data in sensors:
-                    values = parse_sensor_data(sensor_id, sensor_raw_data)
+                    values = convert_sensor_data(sensor_id, sensor_raw_data)
 
                     formatted_data = format_sensor_data(sensor_id, sensor_raw_data, values)
 
