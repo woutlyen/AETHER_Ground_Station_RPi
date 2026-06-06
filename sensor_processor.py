@@ -37,7 +37,7 @@ if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
 else:
     logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
     logger.setLevel(logging.INFO)
-    
+
 sensor_config = config.get("sensor_config", {})
 
 # Load sensor definitions
@@ -103,60 +103,121 @@ def bytes_to_uint16(msb: int, lsb: int) -> int:
     return (msb << 8) | lsb
 
 
-def parse_sensor_data(sensor_id: int, data: bytes) -> list:
-    """Parse raw sensor data to readable values"""
+def convert_sensor_data(sensor_id: int, data: bytes) -> list:
+    """Convert raw sensor data to human-readable values"""
     values = []
     
     if sensor_id == 0x03:  # GNSS_POSITION
+        # Latitude (uint24): mapped to -90° to +90° range
+        # Formula: latitude_degrees = (value / 2^24) * 180 - 90
         lat_raw = (data[0] << 16) | (data[1] << 8) | data[2]
         lat_degrees = (lat_raw / (2 ** 24)) * 180 - 90
+        
+        # Longitude (uint24): mapped to -180° to +180° range
+        # Formula: longitude_degrees = (value / 2^24) * 360 - 180
         lon_raw = (data[3] << 16) | (data[4] << 8) | data[5]
         lon_degrees = (lon_raw / (2 ** 24)) * 360 - 180
+        
+        # Altitude (uint16): scaled by factor of 1.5 m per LSB
         alt_raw = bytes_to_uint16(data[6], data[7])
         alt_meters = alt_raw * 1.5
+        
         values = [lat_degrees, lon_degrees, alt_meters]
+        
     elif sensor_id == 0x04:  # EPS_BATTERY
+        # Current (uint16), Voltage (uint16)
         current = bytes_to_uint16(data[0], data[1])
         voltage = bytes_to_uint16(data[2], data[3])
         values = [current, voltage]
+        
     elif sensor_id == 0x05:  # CS_STATUS
-        values = [data[i] for i in range(7)] + [data[7]]
+        # 7x uint8, 1x status byte with bit flags
+        values = [
+            data[0],  # CPU_Usage %
+            data[1],  # CPU_Temp °C
+            data[2],  # RAM_Usage %
+            data[3],  # eMMC_Usage %
+            data[4],  # SD_Usage %
+            data[5],  # Cam1_RTP
+            data[6],  # Cam2_RTP
+            data[7],  # Status byte (bit flags)
+        ]
+        
     elif sensor_id == 0x07:  # IFS_ALTIMETER
+        # Temperature (int32, /100 °C), Pressure (int32, /100 mbar)
         temp_raw = bytes_to_int32(data[0], data[1], data[2], data[3])
         press_raw = bytes_to_int32(data[4], data[5], data[6], data[7])
         values = [temp_raw / 100.0, press_raw / 100.0]
+        
     elif sensor_id == 0x09:  # IFS_TCOUPLE
+        # 4x Temperature (int16, 0.25/LSB °C)
         for i in range(4):
             temp_raw = bytes_to_int16(data[i*2], data[i*2+1])
-            values.append(temp_raw * 0.25)
+            temp_celsius = temp_raw * 0.25
+            values.append(temp_celsius)
+        
     elif sensor_id == 0x11:  # IFS_TCOUPLE_INTERN
+        # 4x Temperature (int16, 0.0625/LSB °C)
         for i in range(4):
             temp_raw = bytes_to_int16(data[i*2], data[i*2+1])
-            values.append(temp_raw * 0.0625)
+            temp_celsius = temp_raw * 0.0625
+            values.append(temp_celsius)
+        
     elif sensor_id == 0x13:  # IFS_TCOUPLE_ERROR
-        values = [data[0]]
+        # Error flags (bit-mapped) for 4 thermocouples
+        values = [data[0], data[1], data[2], data[3]]
+        
     elif sensor_id == 0x14:  # IFS_STAGNATION
+        # Temperature (int16) and Pressure (int16) conversions
         temp_raw = bytes_to_int16(data[0], data[1])
         press_raw = bytes_to_int16(data[2], data[3])
-        values = [temp_raw, press_raw]
+        
+        temp_celsius = (temp_raw - 8192) * 4.272e-3
+        
+        calibration_offset = -0.08
+        press_kpa = (press_raw - 3277) * 7.63e-4 - 10 + calibration_offset
+        
+        values = [temp_celsius, press_kpa]
+        
     elif sensor_id == 0x15:  # IFS_BW_CURRENTS
-        current1 = bytes_to_uint16(data[0], data[1])
-        current2 = bytes_to_uint16(data[2], data[3])
-        values = [current1, current2]
+        # 2x Current (uint16) conversion to Amperes
+        current1_raw = bytes_to_uint16(data[0], data[1])
+        current2_raw = bytes_to_uint16(data[2], data[3])
+        
+        current1_a = current1_raw * 3.3 * 1.9608 / (2 ** 12) if current1_raw != 0 else 0
+        current2_a = current2_raw * 3.3 * 1.9608 / (2 ** 12) if current2_raw != 0 else 0
+        
+        values = [current1_a, current2_a]
+        
     elif sensor_id == 0x16:  # IFS_CGG_CURRENTS
-        current1 = bytes_to_uint16(data[0], data[1])
-        current2 = bytes_to_uint16(data[2], data[3])
-        values = [current1, current2]
+        # 2x Current (uint16) conversion to Amperes
+        current1_raw = bytes_to_uint16(data[0], data[1])
+        current2_raw = bytes_to_uint16(data[2], data[3])
+        
+        current1_a = current1_raw * 3.3 * 1.9608 / (2 ** 12) if current1_raw != 0 else 0
+        current2_a = current2_raw * 3.3 * 1.9608 / (2 ** 12) if current2_raw != 0 else 0
+        
+        values = [current1_a, current2_a]
+        
     elif sensor_id == 0x17:  # IFS_MANIFOLD
-        pressure = bytes_to_uint16(data[0], data[1])
-        values = [pressure]
+        # Manifold Pressure (uint16) conversion to kPa
+        pressure_raw = bytes_to_uint16(data[0], data[1])
+        
+        vout = pressure_raw * 4.95 / (2 ** 12)
+        pressure_kpa = ((vout / 5) - 0.04) / 0.0012858
+        
+        values = [pressure_kpa]
+        
     elif sensor_id == 0x18:  # IFS_ACCELERATION
+        # 3x Acceleration (int16) + Temperature (int16)
         accel_z = bytes_to_int16(data[0], data[1])
         accel_y = bytes_to_int16(data[2], data[3])
         accel_x = bytes_to_int16(data[4], data[5])
         temp = bytes_to_int16(data[6], data[7])
         values = [accel_z, accel_y, accel_x, temp]
+        
     elif sensor_id == 0x20:  # IFS_ROTATION
+        # 3x Rotation Rate (int16)
         yaw = bytes_to_int16(data[0], data[1])
         roll = bytes_to_int16(data[2], data[3])
         pitch = bytes_to_int16(data[4], data[5])
