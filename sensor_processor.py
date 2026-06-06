@@ -16,7 +16,7 @@ import logging
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [SENSOR] %(message)s",
+    format="%(asctime)s [SENSOR_PROCESSOR] [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,14 @@ def load_config(config_path="config.json"):
         sys.exit(1)
 
 config = load_config()
+
+LOGGING_LEVEL = config.get("features", {}).get("logging_level", "INFO").upper()
+if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+    logger.setLevel(getattr(logging, LOGGING_LEVEL))
+else:
+    logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
+    logger.setLevel(logging.INFO)
+    
 sensor_config = config.get("sensor_config", {})
 
 # Load sensor definitions

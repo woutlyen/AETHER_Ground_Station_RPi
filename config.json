@@ -1,6 +1,6 @@
 {
     "features": {
-        "logging": true
+        "logging_level": "INFO"
     },
     "spi_demux": {
         "bus": 0,

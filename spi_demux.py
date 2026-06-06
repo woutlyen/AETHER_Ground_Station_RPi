@@ -1,5 +1,5 @@
 """
-SPI Data Demultiplexer (Minimal)
+SPI Data Demultiplexer
 
 Receives multiplexed SPI data and forwards to appropriate processors.
 Focus: Receive data, validate CRC, forward payload via UDP. Nothing else.
@@ -17,6 +17,15 @@ import RPi.GPIO as GPIO
 import json
 import signal
 import sys
+import logging
+import os
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [SPI DEMULTIPLEXER] [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 def load_config(config_path="config.json"):
     """Load configuration from JSON file."""
@@ -24,7 +33,7 @@ def load_config(config_path="config.json"):
         with open(config_path, "r") as f:
             return json.load(f)
     except Exception as e:
-        print(f"Error loading config: {e}")
+        logger.error(f"Error loading config: {e}")
         sys.exit(1)
 
 config = load_config()
@@ -36,16 +45,31 @@ SPI_SPEED = spi_config.get("speed", 3000000)
 CHUNK_SIZE = spi_config.get("chunk_size", 1024)
 DRDY_PIN = spi_config.get("drdy_pin", 25)
 
+LOGGING_LEVEL = config.get("features", {}).get("logging_level", "INFO").upper()
+if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+    logger.setLevel(getattr(logging, LOGGING_LEVEL))
+else:
+    logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
+    logger.setLevel(logging.INFO)
+
 # UDP forwarding setup
 FORWARD_BASE_ADDRESS = "127.0.0.1"
 FORWARD_SENSOR_PORT = 6000  # Stream 0
 FORWARD_CAMERA_BASE_PORT = 6001  # Stream 1 → 6001, Stream 2 → 6002, etc.
 
 # Initialize SPI
-spi = spidev.SpiDev()
-spi.open(SPI_BUS, SPI_DEVICE)
-spi.max_speed_hz = SPI_SPEED
-spi.mode = 0
+try:
+    spi = spidev.SpiDev()
+    spi.open(SPI_BUS, SPI_DEVICE)
+    spi.max_speed_hz = SPI_SPEED
+    spi.mode = 0
+
+    logger.info(
+        f"SPI initialized: bus={SPI_BUS}, device={SPI_DEVICE}, speed={SPI_SPEED}"
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize SPI: {e}")
+    sys.exit(1)
 
 # Initialize GPIO
 GPIO.setmode(GPIO.BCM)
@@ -60,7 +84,7 @@ def signal_handler(sig, frame):
     """Handle graceful shutdown."""
     global shutdown_requested
     shutdown_requested = True
-    print("Shutdown signal received")
+    logger.info("Shutdown signal received")
 
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
@@ -110,7 +134,10 @@ def parse_and_forward(buffer):
         crc_calc = stm32_crc32(header_payload)
 
         if crc_calc != crc_received:
-            print(f"[CRC FAIL] Stream {stream_id}: expected {crc_received:08x}, got {crc_calc:08x}")
+            logger.warning(
+                f"CRC validation failed for stream {stream_id}: "
+                f"expected={crc_received:08x}, calculated={crc_calc:08x}"
+            )
             i += total_size
             continue
 
@@ -121,26 +148,40 @@ def parse_and_forward(buffer):
         if stream_id == 0:
             # Sensor data
             dest_port = FORWARD_SENSOR_PORT
-            print(f"[OK] Sensor data: {len(payload)} bytes → UDP 6000")
+            logger.debug(
+                f"Forwarded sensor payload ({len(payload)} bytes) "
+                f"to UDP port {dest_port}"
+            )
         else:
             # Camera data (stream_id 1, 2, etc.)
             dest_port = FORWARD_CAMERA_BASE_PORT + stream_id - 1
-            print(f"[OK] Camera{stream_id}: {len(payload)} bytes → UDP {dest_port}")
+            logger.debug(
+                f"Forwarded camera stream {stream_id} payload "
+                f"({len(payload)} bytes) to UDP port {dest_port}"
+            )
 
         # Forward payload via UDP
         try:
             forward_sock.sendto(payload, (FORWARD_BASE_ADDRESS, dest_port))
         except Exception as e:
-            print(f"[SEND ERROR] Failed to forward to port {dest_port}: {e}")
+            logger.error(
+                f"Failed to forward payload to UDP port {dest_port}: {e}"
+            )
 
         i += total_size
 
 
-print("SPI Demux starting (receive + CRC + forward)...")
-print(f"  SPI: bus={SPI_BUS}, device={SPI_DEVICE}, speed={SPI_SPEED}")
-print(f"  GPIO DRDY: pin {DRDY_PIN}")
-print(f"  Forward: sensors → {FORWARD_BASE_ADDRESS}:{FORWARD_SENSOR_PORT}")
-print(f"  Forward: cameras → {FORWARD_BASE_ADDRESS}:{FORWARD_CAMERA_BASE_PORT}+")
+logger.info("SPI demultiplexer started")
+logger.info(
+    f"SPI: bus={SPI_BUS}, device={SPI_DEVICE}, speed={SPI_SPEED}"
+)
+logger.info(f"GPIO DRDY pin: {DRDY_PIN}")
+logger.info(
+    f"Sensor forwarding: {FORWARD_BASE_ADDRESS}:{FORWARD_SENSOR_PORT}"
+)
+logger.info(
+    f"Camera forwarding base port: {FORWARD_CAMERA_BASE_PORT}"
+)
 
 try:
     while not shutdown_requested:
@@ -165,8 +206,8 @@ try:
 except KeyboardInterrupt:
     pass
 finally:
-    print("Cleaning up SPI demux...")
+    logger.info("Shutting down SPI demultiplexer...")
     spi.close()
     GPIO.cleanup()
     forward_sock.close()
-    print("SPI demux shut down")
+    logger.info("SPI demultiplexer shut down")

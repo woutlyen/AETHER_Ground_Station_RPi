@@ -11,16 +11,48 @@ import sys
 import signal
 import socket
 import time
+import logging
+import json
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 Gst.init(None)
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [UDP MJPEG] [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+def load_config(config_path="config.json"):
+    """Load configuration from JSON file."""
+    try:
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        sys.exit(1)
+
+config = load_config()
+
+LOGGING_LEVEL = config.get("features", {}).get("logging_level", "INFO").upper()
+if LOGGING_LEVEL in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+    logger.setLevel(getattr(logging, LOGGING_LEVEL))
+else:
+    logger.warning(f"Invalid logging level '{LOGGING_LEVEL}' in config, defaulting to INFO")
+    logger.setLevel(logging.INFO)
+
 # Parse command line arguments
 if len(sys.argv) < 5:
-    print("Usage: udp_mjpeg.py <udp_port_in> <udp_address_out> <udp_port_out> <label> [quality]")
-    print("  Example: udp_mjpeg.py 6001 127.0.0.1 7001 camera1 50")
+    logger.error(
+    "Usage: udp_mjpeg.py <udp_port_in> <udp_address_out> "
+    "<udp_port_out> <label> [quality]"
+    )
+    logger.error(
+        "Example: udp_mjpeg.py 6001 127.0.0.1 7001 camera1 50"
+    )
     sys.exit(1)
 
 udp_port_in = sys.argv[1]
@@ -49,8 +81,10 @@ def send_metadata():
 
     try:
         sock.sendto(packet, (udp_address_out, int(udp_port_out)))
-    except:
-        pass
+    except Exception as e:
+        logger.error(
+            f"{label}: Failed to send metadata: {e}"
+        )
 
 
 def send_frame(frame_bytes):
@@ -59,8 +93,10 @@ def send_frame(frame_bytes):
         chunk = frame_bytes[i:i + max_payload]
         try:
             sock.sendto(chunk, (udp_address_out, int(udp_port_out)))
-        except:
-            pass
+        except Exception as e:
+            logger.error(
+                f"{label}: Failed to send MJPEG frame chunk: {e}"
+            )
 
 
 def on_new_sample(appsink):
@@ -87,6 +123,9 @@ def on_new_sample(appsink):
             now = time.time()
             if now - last_time >= 1.0:
                 fps = frames_in_window
+                logger.info(
+                    f"{label}: FPS={fps}, total_frames={frame_count}"
+                )
                 frames_in_window = 0
                 last_time = now
 
@@ -98,7 +137,9 @@ def on_new_sample(appsink):
 
         return Gst.FlowReturn.OK
     except Exception as e:
-        print(f"Error processing sample: {e}")
+        logger.error(
+            f"{label}: Error processing sample: {e}"
+        )
         return Gst.FlowReturn.ERROR
 
 
@@ -119,7 +160,9 @@ appsink.connect("new-sample", on_new_sample)
 
 
 def shutdown_pipeline(sig, frame):
-    print(f"[{label}] Shutting down gracefully...")
+    logger.info(
+        f"{label}: Shutting down gracefully..."
+    )
     pipeline.set_state(Gst.State.NULL)
     sock.close()
     sys.exit(0)
@@ -128,16 +171,28 @@ def shutdown_pipeline(sig, frame):
 signal.signal(signal.SIGINT, shutdown_pipeline)
 signal.signal(signal.SIGTERM, shutdown_pipeline)
 
-print(f"[{label}] Starting MJPEG transcoder (quality={quality})")
-print(f"[{label}]   Input: RTP on UDP port {udp_port_in}")
-print(f"[{label}]   Output: MJPEG to {udp_address_out}:{udp_port_out}")
+logger.info(
+    f"{label}: Starting MJPEG transcoder (quality={quality})"
+)
+
+logger.info(
+    f"{label}: Input RTP port={udp_port_in}"
+)
+
+logger.info(
+    f"{label}: Output MJPEG={udp_address_out}:{udp_port_out}"
+)
 
 ret = pipeline.set_state(Gst.State.PLAYING)
 if ret == Gst.StateChangeReturn.FAILURE:
-    print(f"[{label}] ERROR: Failed to set pipeline to PLAYING state")
+    logger.error(
+        f"{label}: Failed to set pipeline to PLAYING state"
+    )
     sys.exit(1)
 
-print(f"[{label}] Pipeline started successfully")
+logger.info(
+    f"{label}: Pipeline started successfully"
+)
 
 try:
     bus = pipeline.get_bus()
@@ -149,14 +204,22 @@ try:
     if msg:
         if msg.type == Gst.MessageType.ERROR:
             err, debug = msg.parse_error()
-            print(f"[{label}] ERROR: {err.message}")
-            print(f"[{label}] Debug: {debug}")
+            logger.error(
+                f"{label}: ERROR: {err.message}"
+            )
+            logger.debug(
+                f"{label}: Debug: {debug}"
+            )
 except KeyboardInterrupt:
     pass
 except Exception as e:
-    print(f"[{label}] Exception: {e}")
+    logger.error(
+        f"{label}: Unexpected exception: {e}"
+    )
 finally:
     pipeline.set_state(Gst.State.NULL)
     sock.close()
-    print(f"[{label}] Shut down")
+    logger.info(
+        f"{label}: Shut down"
+    )
     sys.exit(1)
