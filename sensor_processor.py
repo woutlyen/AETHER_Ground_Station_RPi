@@ -14,7 +14,7 @@ import struct
 import logging
 import os
 
-logging_level = os.getenv("LOGGING_ENABLED", "INFO").upper()
+logging_level = os.getenv("LOGGING_LEVEL", "INFO").upper()
 
 # Configure logging
 logging.basicConfig(

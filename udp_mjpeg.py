@@ -20,7 +20,7 @@ from gi.repository import Gst, GLib
 
 Gst.init(None)
 
-logging_level = os.getenv("LOGGING_ENABLED", "INFO").upper()
+logging_level = os.getenv("LOGGING_LEVEL", "INFO").upper()
 
 # Configure logging
 logging.basicConfig(
