@@ -23,10 +23,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_config(config_path="config.json"):
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
+
+def load_config():
     """Load configuration from JSON file."""
     try:
-        with open(config_path, "r") as f:
+        with open(CONFIG_FILE, "r") as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Error loading config: {e}")
@@ -161,7 +164,7 @@ def convert_sensor_data(sensor_id: int, data: bytes) -> list:
         
     elif sensor_id == 0x13:  # IFS_TCOUPLE_ERROR
         # Error flags (bit-mapped)
-        values = [data[0]]
+        values = [data[0], data[1], data[2], data[3]]
         
     elif sensor_id == 0x14:  # IFS_STAGNATION
         # Temperature (int16) and Pressure (int16) conversions
