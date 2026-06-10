@@ -60,8 +60,10 @@ for key_str, value in sensor_names_str.items():
 
 LISTEN_PORT = 6000
 
-SENSOR_DATA_OUTPUT_ADDRESS = config.get("sensor_data_output_address", "127.0.0.1")
-SENSOR_DATA_OUTPUT_BASE_PORT = config.get("sensor_data_output_base_port", 7000)
+sensor_processor = config.get("sensor_processor", {})
+
+SENSOR_DATA_OUTPUT_ADDRESS = sensor_processor.get("sensor_output_address", "127.0.0.1")
+SENSOR_DATA_OUTPUT_BASE_PORT = sensor_processor.get("sensor_output_base_port", 7000)
 
 # Create sensor sockets (SENSOR_DATA_OUTPUT_BASE_PORT + sensor_id)
 sensor_socks = {}

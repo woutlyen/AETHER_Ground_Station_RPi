@@ -87,7 +87,8 @@ def send_metadata():
 
 
 def send_frame(frame_bytes):
-    max_payload = 8192
+    # logger.info(f"JPEG size = {len(frame_bytes)} bytes")
+    max_payload = 8192*4
     for i in range(0, len(frame_bytes), max_payload):
         chunk = frame_bytes[i:i + max_payload]
         try:
